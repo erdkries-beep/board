@@ -90,6 +90,35 @@ function patchDashboardHtml(source) {
     }
   }`;
   html = html.replace(targetPattern, (_all, declaration) => declaration + "\n" + orderPatch);
+
+  // The feed already contains its strategy-specific allocation denominator.
+  // Use that actual-weight column instead of re-dividing gross holdings.
+  const sourceCurrentWeight = /(\bw:\s*val\(r,\s*C\.w\),\s*trade:\s*val\(r,\s*C\.trade\),\s*curPx:\s*cur\s*,)/;
+  html = html.replace(sourceCurrentWeight, "$1 curW: (C.cur >= 0 && /^(현재비중|현재비율)$/.test(String(head[C.cur + 1] || '').trim()) ? val(r, C.cur + 1) : null),");
+  html = html.replace("buyPx: t.buyPx, sellPx: t.sellPx, curPx: t.curPx, ...pick(t.name)",
+                      "buyPx: t.buyPx, sellPx: t.sellPx, curPx: t.curPx, curW: t.curW, ...pick(t.name)");
+  html = html.replace(
+    "buyPx: t.buyPx, sellPx: t.sellPx, curPx: t.curPx, curW: t.curW, ...pick(t.name) }));",
+    "buyPx: t.buyPx, sellPx: t.sellPx, curPx: t.curPx, curW: t.curW, ...pick(t.name) }));\n" +
+    "  rowsDef.forEach(__r => { const __members = merge[__r.name]; if (!Array.isArray(__members) || !__members.length || !DATA || !Array.isArray(DATA.tgtSJ)) return; const __weights = __members.map(__n => (DATA.tgtSJ.find(__t => __t.name === __n) || {}).curW); if (__weights.every(__w => __w != null && Number.isFinite(__w))) __r.curW = __weights.reduce((__s, __w) => __s + __w, 0); });"
+  );
+  html = html.replace(
+    "const S = Math.max(...rowsDef.map(r => Math.max(tot > 0 ? r.v / tot : 0, r.w || 0)), 0.01) * 1.12;",
+    "const S = Math.max(...rowsDef.map(r => Math.max(r.curW != null ? r.curW : (r.w == null ? 0 : (tot > 0 ? r.v / tot : 0)), r.w || 0)), 0.01) * 1.12;"
+  );
+  html = html.replace(
+    "const cur = r.missing ? null : (tot > 0 ? r.v / tot : 0);",
+    "const cur = r.missing ? null : (r.curW != null ? r.curW : (r.w == null ? null : (tot > 0 ? r.v / tot : 0)));"
+  );
+  html = html.replace(
+    'vs.appendChild(el("b", null, cur != null ? fmtPct(cur) : "–"));',
+    'vs.appendChild(el("b", null, cur != null ? fmtPct(cur) : (r.w == null ? "비중 제외" : "–")));'
+  );
+  html = html.replace(
+    "막대 = 현재 비중(평가액 기준)",
+    "막대 = 원본 매매표의 현재비중 · 목표 외 종목은 전략 비중 계산에서 제외"
+  );
+
   return html;
 }
 
