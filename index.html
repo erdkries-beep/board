@@ -49,10 +49,54 @@ async function derive(pw) {
     { name:"PBKDF2", salt:b64(ENC.salt), iterations:ENC.iter, hash:"SHA-256" },
     km, { name:"AES-GCM", length:256 }, false, ["decrypt"]);
 }
+/* Runtime compatibility layer: operates only on decrypted HTML in browser memory.
+   It does not change the encrypted payload, credentials, or trading data. */
+function patchDashboardHtml(source) {
+  let html = source;
+  // Accept the newer allocation header for the target-weight column.
+  const weightPattern = /(\bw\s*:\s*at\s*\()\s*(["'])현재비율\2\s*,/;
+  html = html.replace(weightPattern, (_all, prefix, quote) =>
+    prefix + quote + "현재비중" + quote + ", " + quote + "현재비율" + quote + ",");
+
+  // Map the current active domestic order price to the matching target row.
+  // Multiple active orders for one ticker are intentionally treated as ambiguous.
+  const targetPattern = /(\bconst\s+tgtDG\s*=\s*td\s*>=\s*0\s*\?\s*parseTargets\s*\(\s*rows\.slice\(\s*td\s*\+\s*1\s*,\s*nextMarker\(td\)\s*\)\s*\)\s*:\s*\[\s*\]\s*;)/;
+  const orderPatch = `
+  {
+    const __ordStart = rows.findIndex(r => String(r[0] ?? "").trim() === "ORD_KR");
+    if (__ordStart >= 0) {
+      const __activeOrders = new Map();
+      for (const __r of rows.slice(__ordStart + 1)) {
+        const __flag = String(__r[0] ?? "").trim().toUpperCase();
+        if (["ORD_ISA", "ORD_US", "ORD_UB", "FILL_KR", "FILL_US", "FILL_UB",
+             "FLOW", "DIV", "BOTLOG_BAL", "BOTLOG_ORD", "PORT_KR", "PORT_US"].includes(__flag)) break;
+        if (__flag !== "TRUE") continue;
+        const __ticker = String(__r[2] ?? "").trim();
+        const __side = String(__r[3] ?? "").trim();
+        const __price = toNum(__r[5]), __qty = toNum(__r[6]);
+        if (!__ticker || !["매수", "매도"].includes(__side) || !(__price > 0) || !(__qty > 0)) continue;
+        const __entries = __activeOrders.get(__ticker) || [];
+        __entries.push({ side: __side, price: __price });
+        __activeOrders.set(__ticker, __entries);
+      }
+      tgtDG.forEach(__t => {
+        if (!(__t.trade > 0 || __t.trade < 0)) return;
+        const __entries = __activeOrders.get(__t.name) || [];
+        if (__entries.length !== 1) return;
+        const __order = __entries[0];
+        if (__t.trade > 0 && __order.side === "매수") __t.buyPx = __order.price;
+        if (__t.trade < 0 && __order.side === "매도") __t.sellPx = __order.price;
+      });
+    }
+  }`;
+  html = html.replace(targetPattern, (_all, declaration) => declaration + "\n" + orderPatch);
+  return html;
+}
+
 async function unlockDashboard(pw, remember) {
   const key = await derive(pw);
   const pt = await crypto.subtle.decrypt({ name:"AES-GCM", iv:b64(ENC.iv) }, key, b64(ENC.ct));
-  const html = new TextDecoder().decode(pt);
+  const html = patchDashboardHtml(new TextDecoder().decode(pt));
   try { sessionStorage.setItem("sj_pw", pw); } catch(e) {}
   if (remember === true) {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ pw, exp: Date.now() + DAYS*864e5 })); } catch(e) {}
