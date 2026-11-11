@@ -129,6 +129,8 @@ function patchDashboardHtml(source) {
   html = html.replace("cur != null ? fmtPct(cur) : (r.w == null ? \"비중 제외\" : \"–\")", "cur != null ? fmtPct(cur) : (r.name.startsWith(\"현금\") ? \"–\" : (r.w == null ? \"비중 제외\" : \"–\"))");
   html = html.replace("막대 = 원본 매매표의 현재비중 · 목표 외 종목은 전략 비중 계산에서 제외", "막대 = 원본 매매표의 현재비중 · SGOV·BOXX는 현금성에 통합 · GILD 등 전략 외 종목은 비중 계산에서 제외");
 
+  // Exclude GILD from the strategy treemap; retain it in portfolio holdings and all other views.
+  html = html.replace("  tmItems.push({ k: \"현금\", v: Math.max(last.cash || 0, 0), c: null });\n  treemap(tmH, tmItems);", "  tmItems.push({ k: \"현금\", v: Math.max(last.cash || 0, 0), c: null });\n  treemap(tmH, tmItems.filter(it => it.k !== \"GILD\"));");
   return html;
 }
 
