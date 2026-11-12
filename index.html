@@ -53,10 +53,13 @@ async function derive(pw) {
    It does not change the encrypted payload, credentials, or trading data. */
 function patchDashboardHtml(source) {
   let html = source;
-  // Accept the newer allocation header for the target-weight column.
-  const weightPattern = /(\bw\s*:\s*at\s*\()\s*(["'])현재비율\2\s*,/;
-  html = html.replace(weightPattern, (_all, prefix, quote) =>
-    prefix + quote + "현재비중" + quote + ", " + quote + "현재비율" + quote + ",");
+  // Map target weight to the leftmost target column, not to the current-weight column.
+  // DG feed: A=비율, I=현재비중. SJ feed: A=현재비중 and I=현재비중.
+  const weightPattern = /(\bw\s*:\s*at\s*\()([^)]*)(\))/g;
+  html = html.replace(weightPattern, (whole, prefix, names, suffix) => {
+    if (!/["']비율["']/.test(names)) return whole;
+    return prefix + '"비율", "목표비중", "현재비율", "현재비중"' + suffix;
+  });
 
   // Map the current active domestic order price to the matching target row.
   // Multiple active orders for one ticker are intentionally treated as ambiguous.
